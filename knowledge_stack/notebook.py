@@ -48,6 +48,7 @@ def preflight() -> dict:
 
 def persona_apply() -> dict:
     cfg = preflight()
+    _run("source", "list", "--notebook", cfg["id"], "--json")
     prompt = (ROOT / cfg["persona"]).read_text(encoding="utf-8").strip()
     if len(prompt) > 10_000:
         raise ValueError("NotebookLM persona exceeds CLI limit")

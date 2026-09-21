@@ -2,13 +2,14 @@ from __future__ import annotations
 
 import argparse
 import json
-import os
 import subprocess
 from pathlib import Path
 
 from .deps import install_runtime, verify_runtime
+from .credentials import typesafe_key_available
+from .decisions.typesafe import TypeSafeJevProvider
 from .notebook import persona_apply, projection, publish
-from .paths import ROOT, STATE, lockfile
+from .paths import NOTEBOOK_CLI, ROOT, STATE, lockfile
 from .pipeline import apply, classify
 from .state import mark_done, pending
 
@@ -22,9 +23,11 @@ def _status() -> dict:
         result["dataweave_pinned"] = False
         result["dataweave_error"] = str(exc)
     result["jev_provider"] = "typesafe_api"
-    result["jev_api_key_configured"] = bool(os.environ.get("TYPESAFE_API_KEY"))
+    result["jev_api_key_configured"] = typesafe_key_available()
     result["local_jev"] = "adapter reserved; not active"
-    result["notebooklm"] = "deferred: network/auth check is an explicit command"
+    result["notebooklm_cli_present"] = NOTEBOOK_CLI.exists()
+    result["notebooklm_mcp_present"] = Path("/Users/sheva/.notebooklm-venv/bin/notebooklm-mcp").exists()
+    result["notebooklm_live_auth"] = "run notebooklm auth check --test --json"
     return result
 
 
@@ -51,6 +54,7 @@ def main() -> None:
     apply_parser = sub.add_parser("apply", help="Write reviewed candidates through DataWeave")
     apply_parser.add_argument("plan", type=Path)
     sub.add_parser("projection", help="Show queued projection hash and size, not its content")
+    sub.add_parser("jev-smoke", help="Test the official Jev API with public fixture text")
     sub.add_parser("persona-apply", help="Set AI Brain notebook persona after network recovery")
     sub.add_parser("publish", help="Publish first managed source or report refresh requirement")
     args = parser.parse_args()
@@ -72,6 +76,12 @@ def main() -> None:
     elif args.command == "projection":
         content, digest = projection()
         result = {"sha256": digest, "characters": len(content)}
+    elif args.command == "jev-smoke":
+        decision = TypeSafeJevProvider().evaluate(
+            "Canonical knowledge decision",
+            "The Obsidian Brain vault is the canonical store; AI Brain is a curated projection for synthesis.",
+        )
+        result = {"model": decision.model, "retention": decision.retention.choice, "retention_confidence": decision.retention.confidence, "route": decision.route.choice, "route_confidence": decision.route.confidence}
     elif args.command == "persona-apply":
         result = persona_apply()
     elif args.command == "publish":

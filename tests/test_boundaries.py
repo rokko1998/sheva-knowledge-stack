@@ -29,7 +29,7 @@ class BoundaryTests(unittest.TestCase):
             source = Path(tmp) / "candidates.json"
             output = Path(tmp) / "review.json"
             source.write_text(json.dumps({"session_id": "s", "candidates": [{"title": "Decision", "body": "Keep this", "jev_safe": True}]}), encoding="utf-8")
-            with patch.dict("os.environ", {}, clear=True):
+            with patch.object(typesafe, "get_typesafe_key", return_value=None):
                 result = pipeline.classify(source, output)
             self.assertEqual(result["candidates"][0]["retention"], "UNCERTAIN")
             self.assertEqual(result["candidates"][0]["route"], "REVIEW")
@@ -54,10 +54,11 @@ class BoundaryTests(unittest.TestCase):
 
         captured = {}
 
-        def fake_urlopen(request, timeout):
+        def fake_urlopen(request, timeout, context):
             captured["url"] = request.full_url
             captured["payload"] = json.loads(request.data)
             self.assertEqual(timeout, 15)
+            self.assertIsNotNone(context)
             return FakeResponse()
 
         with patch.object(typesafe, "urlopen", side_effect=fake_urlopen):

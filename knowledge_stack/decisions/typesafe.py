@@ -1,12 +1,15 @@
 from __future__ import annotations
 
 import json
-import os
+import ssl
 from dataclasses import dataclass
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
+import certifi
+
 from ..paths import lockfile
+from ..credentials import get_typesafe_key
 
 
 ENDPOINT = "https://api.typesafe.ai/v1/systemone"
@@ -30,9 +33,9 @@ class TypeSafeJevProvider:
     """Official TypeSafe Jev API adapter; no local-model behavior leaks here."""
 
     def __init__(self, api_key: str | None = None):
-        self.api_key = api_key or os.environ.get("TYPESAFE_API_KEY")
+        self.api_key = api_key or get_typesafe_key()
         if not self.api_key:
-            raise RuntimeError("TYPESAFE_API_KEY is not configured")
+            raise RuntimeError("TypeSafe token is not in macOS Keychain or TYPESAFE_API_KEY")
 
     def evaluate(self, title: str, body: str) -> CandidateDecision:
         payload = {
@@ -72,7 +75,7 @@ class TypeSafeJevProvider:
             method="POST",
         )
         try:
-            with urlopen(request, timeout=15) as response:
+            with urlopen(request, timeout=15, context=ssl.create_default_context(cafile=certifi.where())) as response:
                 data = json.load(response)
         except HTTPError as exc:
             raise RuntimeError(f"TypeSafe API returned HTTP {exc.code}") from exc
