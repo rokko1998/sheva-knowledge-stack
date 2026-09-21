@@ -55,7 +55,7 @@ def main() -> None:
     apply_parser.add_argument("plan", type=Path)
     sub.add_parser("projection", help="Show queued projection hash and size, not its content")
     sub.add_parser("jev-smoke", help="Test the official Jev API with public fixture text")
-    sub.add_parser("persona-apply", help="Set AI Brain notebook persona after network recovery")
+    sub.add_parser("persona-apply", help="Apply the AI Brain notebook persona")
     sub.add_parser("publish", help="Publish first managed source or report refresh requirement")
     args = parser.parse_args()
     if args.command == "setup":
