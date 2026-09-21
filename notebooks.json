@@ -1,0 +1,8 @@
+{
+  "ai-brain": {
+    "id": "6a1e477f-2de0-4051-9fbc-5916140aabb6",
+    "title": "AI Brain",
+    "persona": "policies/notebooklm/ai-brain.md",
+    "managed_source_title": "[sheva-knowledge-stack] Curated context"
+  }
+}

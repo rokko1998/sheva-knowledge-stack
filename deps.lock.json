@@ -1,0 +1,10 @@
+{
+  "obsidian_dataweave": {
+    "source": "/Users/sheva/tools/ObsidianDataWeave",
+    "upstream": "https://github.com/howdeploy/ObsidianDataWeave.git",
+    "commit": "ddc40c68941d66943824c668ed192aced866fce8"
+  },
+  "notebooklm_cli": "0.8.1",
+  "jev_api_model": "jev-latest",
+  "local_jev_contract": "choice-v2-null-prior"
+}
