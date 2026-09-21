@@ -9,6 +9,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from knowledge_stack.state import capture, pending  # noqa: E402
+from knowledge_stack.notebook import projection  # noqa: E402
+from knowledge_stack.paths import STATE  # noqa: E402
 
 
 END_PATTERNS = (
@@ -30,10 +32,23 @@ def main() -> None:
         capture(event)
         return
     if name == "SessionStart":
+        notices = []
         items = pending()
         if items:
             paths = ", ".join(str(x) for x in items)
-            output_context(name, "Есть незавершённые итоги прошлых сессий: " + paths + ". После выполнения запроса пользователя обработай их через установленный навык wrapup и sheva-knowledge-stack; не публикуй сырую стенограмму. Отметь завершёнными только после успешной локальной записи.")
+            notices.append("Есть незавершённые итоги прошлых сессий: " + paths + ". После выполнения запроса пользователя обработай их через установленный навык wrapup и sheva-knowledge-stack; не публикуй сырую стенограмму. Отметь завершёнными только после успешной локальной записи.")
+        outbox = STATE / "outbox"
+        if outbox.exists() and any(outbox.glob("*.json")):
+            registry_path = STATE / "publication.json"
+            registry = json.loads(registry_path.read_text(encoding="utf-8")) if registry_path.exists() else {}
+            try:
+                _, digest = projection()
+                if digest != registry.get("content_hash"):
+                    notices.append("Есть проверенные записи, ожидающие публикации в AI Brain. После основного запроса повтори `python3 -m knowledge_stack publish`, если сеть Google доступна.")
+            except (ValueError, KeyError, json.JSONDecodeError):
+                notices.append("Очередь AI Brain требует проверки перед публикацией: `python3 -m knowledge_stack status`.")
+        if notices:
+            output_context(name, " ".join(notices))
         return
     if name == "UserPromptSubmit":
         prompt = str(event.get("prompt") or "").strip().casefold()

@@ -3,9 +3,13 @@ from __future__ import annotations
 import os
 import shutil
 import subprocess
+import sys
+import json
+import tempfile
+from datetime import date
 from pathlib import Path
 
-from .paths import DATAWEAVE, RUNTIME, dataweave_python, lockfile
+from .paths import DATAWEAVE, LOCK, ROOT, RUNTIME, dataweave_python, lockfile
 
 
 def _git(*args: str, cwd: Path) -> str:
@@ -65,3 +69,85 @@ def verify_runtime() -> Path:
     if not (actual / "config.toml").exists():
         raise RuntimeError("Pinned DataWeave runtime has no config")
     return actual
+
+
+def promote_runtime(revision: str) -> dict:
+    """Test a fetched upstream commit, then switch the pinned worktree and lock."""
+    dependency = lockfile()["obsidian_dataweave"]
+    source = Path(dependency["source"])
+    current = dependency["commit"]
+    candidate = _git("rev-parse", "--verify", f"{revision}^{{commit}}", cwd=source)
+    if candidate == current:
+        return {"status": "already_active", "commit": current}
+    if subprocess.run(["git", "merge-base", "--is-ancestor", candidate, "origin/main"], cwd=source).returncode:
+        raise RuntimeError("Candidate commit is not on fetched origin/main")
+    if _git("status", "--porcelain", cwd=source) or _git("status", "--porcelain", cwd=ROOT):
+        raise RuntimeError("Both source and knowledge-stack worktrees must be clean before promotion")
+    active = verify_runtime()
+    candidate_dir = RUNTIME / "versions" / candidate
+    if not candidate_dir.exists():
+        subprocess.run(["git", "worktree", "add", "--detach", str(candidate_dir), candidate], cwd=source, check=True)
+    if _git("rev-parse", "HEAD", cwd=candidate_dir) != candidate or _git("status", "--porcelain", cwd=candidate_dir):
+        raise RuntimeError("Candidate worktree is dirty or points to another commit")
+    for relative in ("AGENTS.md", "scripts/generate_notes.py", "scripts/vault_writer.py", "scripts/memory_index.py", "scripts/process_notebook.py"):
+        if not (candidate_dir / relative).is_file():
+            raise RuntimeError(f"Candidate lacks required DataWeave contract: {relative}")
+    config_link = candidate_dir / "config.toml"
+    config_target = source / "config.toml"
+    if config_link.exists() or config_link.is_symlink():
+        if not (config_link.is_symlink() and config_link.resolve() == config_target.resolve()):
+            raise RuntimeError("Candidate config.toml is not the approved machine config")
+    else:
+        config_link.symlink_to(config_target)
+
+    subprocess.run([str(dataweave_python()), "-m", "pytest", "-q"], cwd=candidate_dir, check=True)
+    subprocess.run([sys.executable, "-m", "unittest", "discover", "-s", "tests", "-q"], cwd=ROOT, check=True)
+    for script in ("generate_notes.py", "vault_writer.py", "memory_index.py", "process_notebook.py"):
+        subprocess.run([str(dataweave_python()), f"scripts/{script}", "--help"], cwd=candidate_dir, check=True, capture_output=True)
+    with tempfile.TemporaryDirectory(prefix="dataweave-contract-", dir=RUNTIME) as tmp:
+        test_root = Path(tmp)
+        sample = test_root / "atom-plan.json"
+        sample.write_text(json.dumps({"notes": [{
+            "title": "DataWeave compatibility probe", "tags": ["codex-wrapup"],
+            "date": date.today().isoformat(), "source_doc": "compatibility-probe",
+            "note_type": "atomic", "body": "A harmless generated note in temporary staging.",
+        }]}), encoding="utf-8")
+        staged = test_root / "notes"
+        subprocess.run(
+            [str(dataweave_python()), "scripts/generate_notes.py", str(sample),
+             "--staging-dir", str(staged)], cwd=candidate_dir, check=True,
+            capture_output=True, text=True,
+        )
+        if len(list(staged.glob("*.md"))) != 1:
+            raise RuntimeError("Candidate DataWeave did not generate the expected staged note")
+
+    registry_source = active / "processed.json"
+    registry_target = candidate_dir / "processed.json"
+    if registry_target.exists() and registry_source.exists() and registry_target.read_bytes() != registry_source.read_bytes():
+        raise RuntimeError("Candidate has a different processed.json; reconcile before promotion")
+    if registry_source.exists() and not registry_target.exists():
+        shutil.copy2(registry_source, registry_target)
+    previous_lock = LOCK.read_bytes()
+    next_lock = lockfile()
+    next_lock["obsidian_dataweave"]["commit"] = candidate
+    next_bytes = (json.dumps(next_lock, ensure_ascii=False, indent=2) + "\n").encode()
+    next_link = DATAWEAVE.with_name(".ObsidianDataWeave.next")
+    try:
+        if next_link.exists() or next_link.is_symlink():
+            next_link.unlink()
+        next_link.symlink_to(candidate_dir)
+        os.replace(next_link, DATAWEAVE)
+        lock_tmp = LOCK.with_suffix(".json.next")
+        lock_tmp.write_bytes(next_bytes)
+        os.replace(lock_tmp, LOCK)
+        verify_runtime()
+        subprocess.run(["git", "add", "deps.lock.json"], cwd=ROOT, check=True)
+        subprocess.run(["git", "commit", "-m", f"chore: promote ObsidianDataWeave to {candidate[:12]}"], cwd=ROOT, check=True)
+    except Exception:
+        rollback_link = DATAWEAVE.with_name(".ObsidianDataWeave.rollback")
+        rollback_link.symlink_to(active)
+        os.replace(rollback_link, DATAWEAVE)
+        LOCK.write_bytes(previous_lock)
+        subprocess.run(["git", "reset", "--", "deps.lock.json"], cwd=ROOT, capture_output=True)
+        raise
+    return {"status": "promoted", "previous": current, "active": candidate}

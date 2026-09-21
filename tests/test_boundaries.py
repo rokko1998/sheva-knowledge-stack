@@ -6,7 +6,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from knowledge_stack import notebook, pipeline, state
+from knowledge_stack import notebook, pipeline, reverse, state
 from knowledge_stack.decisions import typesafe
 
 
@@ -85,7 +85,7 @@ class BoundaryTests(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError, "Potential secret"):
                     notebook.projection()
 
-    def test_existing_text_source_is_not_replaced_automatically(self) -> None:
+    def test_existing_text_source_requires_reviewed_migration(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             state_dir = Path(tmp)
             with patch.object(notebook, "preflight", return_value={"id": "n", "managed_source_title": "managed"}), \
@@ -94,7 +94,42 @@ class BoundaryTests(unittest.TestCase):
                  patch.object(notebook, "STATE", state_dir):
                 (state_dir / "publication.json").write_text(json.dumps({"source_id": "s1", "content_hash": "old hash"}), encoding="utf-8")
                 result = notebook.publish()
-                self.assertEqual(result["status"], "needs_refresh")
+                self.assertEqual(result["status"], "needs_migration")
+
+    def test_managed_drive_source_refreshes_without_adding_another_source(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            state_dir = Path(tmp)
+            (state_dir / "publication.json").write_text(json.dumps({
+                "source_id": "s1", "drive_file_id": "d1", "content_hash": "old hash",
+            }), encoding="utf-8")
+            source = {"id": "s1", "title": "managed", "drive_document_id": "d1", "status": "ready"}
+
+            def fake_run(*args, **_kwargs):
+                if args[:2] == ("source", "list"):
+                    return {"sources": [source]}
+                return {}
+
+            with patch.object(notebook, "preflight", return_value={"id": "n", "managed_source_title": "managed", "drive_path": "gdrive:x/context.txt"}), \
+                 patch.object(notebook, "projection", return_value=("new content", "new hash")), \
+                 patch.object(notebook, "_run", side_effect=fake_run) as run, \
+                 patch.object(notebook.drive, "upload", return_value="d1") as upload, \
+                 patch.object(notebook, "STATE", state_dir):
+                result = notebook.publish()
+            self.assertEqual(result["status"], "ready")
+            self.assertEqual(json.loads((state_dir / "publication.json").read_text())["content_hash"], "new hash")
+            self.assertEqual(upload.call_args.kwargs["expected_id"], "d1")
+            self.assertTrue(any(call.args[:2] == ("source", "refresh") for call in run.call_args_list))
+            self.assertFalse(any(call.args[:2] == ("source", "add-drive") for call in run.call_args_list))
+
+    def test_reverse_import_is_noop_when_ai_brain_has_no_curated_notes(self) -> None:
+        cfg = {"id": "full-notebook-id"}
+        with patch.object(reverse, "preflight", return_value=cfg), \
+             patch.object(reverse, "_run", return_value={"notebook_id": cfg["id"], "notes": [], "count": 0}) as run, \
+             patch.object(reverse, "verify_runtime") as runtime:
+            result = reverse.import_notes()
+        self.assertEqual(result, {"status": "no_curated_notes", "notes": 0})
+        self.assertEqual(run.call_args.args[:2], ("note", "list"))
+        runtime.assert_not_called()
 
 
 if __name__ == "__main__":

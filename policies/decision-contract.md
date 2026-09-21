@@ -1,6 +1,6 @@
 # Knowledge decision contract v1
 
-Canonical knowledge lives in the Obsidian Brain vault. ObsidianDataWeave is the only writer for generated vault notes. The FTS5 index is local recall. AI Brain is a curated NotebookLM projection of selected canonical knowledge, not a second source of truth. A NotebookLM text source is a snapshot; refreshing only makes sense for an existing URL or Drive source after that upstream source has changed.
+Canonical knowledge lives in the Obsidian Brain vault. ObsidianDataWeave is the only writer for generated vault notes. The FTS5 index is local recall. AI Brain is a curated NotebookLM projection of selected canonical knowledge, not a second source of truth. The managed projection is a Google-native Drive document: update its content, then refresh its existing NotebookLM source. Curated NotebookLM notes may return through DataWeave, without ingesting the source fulltext again.
 
 Official Jev makes small choices through the TypeSafe API, not summaries or factual claims. The local MiniCPM adapter is reserved for a later stage. Codex extracts candidate facts, decisions, corrections, lessons and open threads first. Only externally safe candidates are sent to Jev. For each candidate:
 
