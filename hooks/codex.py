@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Fast Codex lifecycle bridge. No model startup or network writes here."""
+"""Codex lifecycle bridge: bounded end-intent Choice and durable recovery markers."""
 from __future__ import annotations
 
 import json
@@ -8,17 +8,12 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from knowledge_stack.decisions.typesafe import TypeSafeJevProvider  # noqa: E402
+from knowledge_stack.privacy import has_obvious_secret  # noqa: E402
 from knowledge_stack.state import capture, pending  # noqa: E402
-from knowledge_stack.notebook import projection  # noqa: E402
-from knowledge_stack.paths import STATE  # noqa: E402
 
-
-END_PATTERNS = (
-    r"^(?:ну\s+)?(?:всё|все)\s+(?:на сегодня|пока)[.!\s]*$",
-    r"^(?:спасибо[,!\s]+)?(?:закончили|закрываем|на сегодня всё|на сегодня все)[.!\s]*$",
-    r"^(?:спасибо[,!\s]+)?(?:потом продолжим|продолжим завтра)[.!\s]*$",
-    r"^/wrapup\s*$",
-)
+# Only a cheap trigger: Jev decides whether the *session* ends.
+END_CUES = re.compile(r"(?:^/wrapup\s*$|\b(?:пока|завтра|позже|продолжим|отложим|пауза|стоп|кончено|закончили|заканчиваем|всё|все|хватит|на\s+сегодня|до\s+встречи|goodbye|bye|later|done|stop|finish|see\s+you)\b)", re.I)
 
 
 def output_context(name: str, message: str) -> None:
@@ -32,28 +27,30 @@ def main() -> None:
         capture(event)
         return
     if name == "SessionStart":
-        notices = []
-        items = pending()
+        items = pending(100)
         if items:
             paths = ", ".join(str(x) for x in items)
-            notices.append("Есть незавершённые итоги прошлых сессий: " + paths + ". После выполнения запроса пользователя обработай их через установленный навык wrapup и sheva-knowledge-stack; не публикуй сырую стенограмму. Отметь завершёнными только после успешной локальной записи.")
-        outbox = STATE / "outbox"
-        if outbox.exists() and any(outbox.glob("*.json")):
-            registry_path = STATE / "publication.json"
-            registry = json.loads(registry_path.read_text(encoding="utf-8")) if registry_path.exists() else {}
-            try:
-                _, digest = projection()
-                if digest != registry.get("content_hash"):
-                    notices.append("Есть проверенные записи, ожидающие публикации в AI Brain. После основного запроса повтори `python3 -m knowledge_stack publish`, если сеть Google доступна.")
-            except (ValueError, KeyError, json.JSONDecodeError):
-                notices.append("Очередь AI Brain требует проверки перед публикацией: `python3 -m knowledge_stack status`.")
-        if notices:
-            output_context(name, " ".join(notices))
+            output_context(name, "Перед обычным запросом обработай незавершённые wrapup-сессии через навык wrapup: " + paths + ". Помечай выполненными только после успешной локальной записи либо осознанного решения, что сохранять нечего.")
         return
-    if name == "UserPromptSubmit":
-        prompt = str(event.get("prompt") or "").strip().casefold()
-        if len(prompt) <= 180 and any(re.fullmatch(pattern, prompt) for pattern in END_PATTERNS):
-            output_context(name, "Пользователь явно завершает разговор. До окончания этого turn выполни навык wrapup и сохрани долговременно полезные итоги через sheva-knowledge-stack. Если нет полезных фактов, отметь это кратко.")
+    if name != "UserPromptSubmit":
+        return
+    prompt = str(event.get("prompt") or "").strip()
+    if not prompt or len(prompt) > 240 or not END_CUES.search(prompt):
+        return
+    if prompt.casefold() == "/wrapup":
+        choice = "SESSION_END"
+    elif has_obvious_secret(prompt) or re.search(r"https?://|[\w.+-]+@[\w.-]+\.\w+|/(?:Users|home)/", prompt):
+        return
+    else:
+        try:
+            choice = TypeSafeJevProvider().end_intent(prompt).answers["end_intent"].choice
+        except (RuntimeError, ValueError, OSError) as exc:
+            print(f"knowledge-stack end-intent unavailable: {exc}", file=sys.stderr)
+            return
+    if choice == "SESSION_END":
+        path = capture(event)
+        if path:
+            output_context(name, "Пользователь завершает текущую сессию. В ЭТОМ turn, до финального ответа, выполни навык wrapup для текущего transcript. Pending locator: " + str(path) + ".")
 
 
 if __name__ == "__main__":

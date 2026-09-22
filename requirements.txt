@@ -1,1 +1,2 @@
 certifi>=2024.2.2
+PyYAML>=6.0

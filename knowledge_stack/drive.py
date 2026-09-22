@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import re
 import subprocess
 from pathlib import Path
 
@@ -47,3 +48,11 @@ def upload(local_file: Path, remote_path: str, *, expected_id: str | None) -> st
     if not actual or (expected_id and actual != expected_id):
         raise RuntimeError("Drive upload changed or lost the managed document ID")
     return actual
+
+
+def content_matches(remote_path: str, expected: str) -> bool:
+    """Google Docs text export may add BOM/paragraph breaks; compare its text tokens."""
+    _location(remote_path)
+    actual = _run("cat", remote_path, "--drive-export-formats", "txt", timeout=120)
+    normalize = lambda value: re.sub(r"\s+", " ", value.lstrip("\ufeff")).strip()
+    return normalize(actual) == normalize(expected)

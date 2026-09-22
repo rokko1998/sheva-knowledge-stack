@@ -8,7 +8,7 @@ from pathlib import Path
 from .deps import install_runtime, promote_runtime, verify_runtime
 from .credentials import typesafe_key_available
 from .decisions.typesafe import TypeSafeJevProvider
-from .notebook import persona_apply, projection, publish
+from .notebook import persona_apply, projections, publish
 from .paths import NOTEBOOK_CLI, ROOT, STATE, lockfile
 from .pipeline import apply, classify
 from .reverse import import_notes
@@ -16,7 +16,7 @@ from .state import mark_done, pending
 
 
 def _status() -> dict:
-    result = {"repository": str(ROOT), "pending": len(pending(1000)), "outbox": len(list((STATE / "outbox").glob("*.json"))) if (STATE / "outbox").exists() else 0}
+    result = {"repository": str(ROOT), "pending": len(pending(1000)), "legacy_outbox_snapshots_ignored": len(list((STATE / "outbox").glob("*.json"))) if (STATE / "outbox").exists() else 0}
     try:
         result["dataweave_runtime"] = str(verify_runtime())
         result["dataweave_pinned"] = True
@@ -31,12 +31,12 @@ def _status() -> dict:
     result["notebooklm_live_auth"] = "run notebooklm auth check --test --json"
     registry_path = STATE / "publication.json"
     registry = json.loads(registry_path.read_text(encoding="utf-8")) if registry_path.exists() else {}
-    result["managed_source_id"] = registry.get("source_id")
-    result["managed_drive_file_id"] = registry.get("drive_file_id")
+    result["publication_schema"] = registry.get("active_schema", "legacy-single-source")
+    result["managed_buckets"] = {k: {"source_id": v.get("source_id"), "ready_hash": bool(v.get("content_hash"))} for k, v in registry.get("sources", {}).items()}
     try:
-        _, digest = projection()
-        result["publication_pending"] = result["outbox"] > 0 and digest != registry.get("content_hash")
-    except ValueError as exc:
+        rendered = projections()
+        result["publication_pending"] = [k for k, (_, digest) in rendered.items() if registry.get("sources", {}).get(k, {}).get("content_hash") != digest]
+    except (ValueError, RuntimeError) as exc:
         result["publication_pending"] = True
         result["publication_error"] = str(exc)
     return result
@@ -66,11 +66,11 @@ def main() -> None:
     classify_parser.add_argument("output", type=Path)
     apply_parser = sub.add_parser("apply", help="Write reviewed candidates through DataWeave")
     apply_parser.add_argument("plan", type=Path)
-    sub.add_parser("projection", help="Show queued projection hash and size, not its content")
+    sub.add_parser("projection", help="Show seven canonical projection hashes and sizes, not contents")
     sub.add_parser("jev-smoke", help="Test the official Jev API with public fixture text")
     persona_parser = sub.add_parser("persona-apply", help="Apply a configured per-notebook persona")
     persona_parser.add_argument("--notebook-key", default="ai-brain")
-    sub.add_parser("publish", help="Create or refresh the single managed AI Brain source")
+    sub.add_parser("publish", help="Create or refresh seven managed AI Brain sources")
     sub.add_parser("import-notes", help="Import curated AI Brain notes through pinned DataWeave")
     args = parser.parse_args()
     if args.command == "setup":
@@ -87,18 +87,24 @@ def main() -> None:
         mark_done(args.session_id)
         result = {"done": args.session_id}
     elif args.command == "classify":
-        result = classify(args.input, args.output)
+        plan = classify(args.input, args.output)
+        result = {"plan": str(args.output), "candidates": len(plan["candidates"]),
+                  "statuses": {status: sum(1 for item in plan["candidates"] if item["status"] == status)
+                               for status in sorted({item["status"] for item in plan["candidates"]})},
+                  "needs_agent_attention": [item.get("candidate_id") for item in plan["candidates"]
+                                            if item["status"] in {"REVIEW", "NEEDS_SEMANTIC_WORK"}]}
     elif args.command == "apply":
         result = apply(args.plan)
     elif args.command == "projection":
-        content, digest = projection()
-        result = {"sha256": digest, "characters": len(content)}
+        result = {k: {"sha256": digest, "characters": len(content)} for k, (content, digest) in projections().items()}
     elif args.command == "jev-smoke":
-        decision = TypeSafeJevProvider().evaluate(
-            "Canonical knowledge decision",
-            "The Obsidian Brain vault is the canonical store; AI Brain is a curated projection for synthesis.",
-        )
-        result = {"model": decision.model, "retention": decision.retention.choice, "retention_confidence": decision.retention.confidence, "route": decision.route.choice, "route_confidence": decision.route.confidence}
+        decision = TypeSafeJevProvider().pass_a({
+            "candidate_id": "public-fixture", "kind": "decision",
+            "title": "Fixture decision", "body": "The team chose option A for the fixture.",
+            "evidence": [{"source": "transcript", "locator": "fixture:1", "excerpt": "We chose option A for the fixture."}],
+            "scope": {"project": "fixture", "domain": "test"},
+        })
+        result = {"model": decision.model, "answers": {k: v.choice for k, v in decision.answers.items()}}
     elif args.command == "persona-apply":
         result = persona_apply(args.notebook_key)
     elif args.command == "publish":

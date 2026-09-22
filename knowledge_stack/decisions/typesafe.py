@@ -8,8 +8,9 @@ from urllib.request import Request, urlopen
 
 import certifi
 
-from ..paths import lockfile
 from ..credentials import get_typesafe_key
+from ..paths import lockfile
+from ..policy import choice_questions, shared_policy
 
 
 ENDPOINT = "https://api.typesafe.ai/v1/systemone"
@@ -23,50 +24,25 @@ class ChoiceResult:
 
 
 @dataclass(frozen=True)
-class CandidateDecision:
-    retention: ChoiceResult
-    route: ChoiceResult
+class JevResult:
+    answers: dict[str, ChoiceResult]
     model: str
 
 
 class TypeSafeJevProvider:
-    """Official TypeSafe Jev API adapter; no local-model behavior leaks here."""
+    """Official SystemOne Choice API; policy prose is loaded from Git files."""
 
     def __init__(self, api_key: str | None = None):
         self.api_key = api_key or get_typesafe_key()
         if not self.api_key:
             raise RuntimeError("TypeSafe token is not in macOS Keychain or TYPESAFE_API_KEY")
 
-    def evaluate(self, title: str, body: str) -> CandidateDecision:
+    def _ask(self, policy_name: str, state: dict) -> JevResult:
+        questions = choice_questions(policy_name)
         payload = {
-            "state": {
-                "candidate": {"title": title[:240], "body": body[:1800]},
-                "architecture": {
-                    "canonical": "Obsidian Brain via ObsidianDataWeave vault_writer",
-                    "projection": "AI Brain NotebookLM curated external copy",
-                },
-            },
+            "state": {"policy": shared_policy(), **state},
             "model": lockfile()["jev_api_model"],
-            "questions": {
-                "retention": {
-                    "type": "choice",
-                    "instructions": "Should this candidate be kept as durable knowledge from the session?",
-                    "criteria": {
-                        "KEEP": "Specific reusable decision, correction, lesson, preference, verified result, or actionable open thread.",
-                        "DROP": "Routine command output, transient status, duplicate fact, or material fully recoverable from source code without a separate lesson.",
-                        "UNCERTAIN": "Insufficient provenance, likely conflict with existing memory, or unclear lasting value.",
-                    },
-                },
-                "route": {
-                    "type": "choice",
-                    "instructions": "If retained, where should this candidate go in the knowledge system?",
-                    "criteria": {
-                        "LOCAL_ONLY": "Write a new canonical Obsidian atomic note; no external projection.",
-                        "LOCAL_AND_AI_BRAIN": "Write the canonical Obsidian note and queue a concise, redacted AI Brain projection.",
-                        "REVIEW": "Requires semantic merge into an existing note, wiki work, sensitive-content review, or unclear destination.",
-                    },
-                },
-            },
+            "questions": questions,
         }
         request = Request(
             ENDPOINT,
@@ -81,15 +57,29 @@ class TypeSafeJevProvider:
             raise RuntimeError(f"TypeSafe API returned HTTP {exc.code}") from exc
         except (URLError, TimeoutError) as exc:
             raise RuntimeError("TypeSafe API is unavailable") from exc
-        answers = data.get("answers") if isinstance(data, dict) else None
-        if not isinstance(answers, dict):
+        raw_answers = data.get("answers") if isinstance(data, dict) else None
+        if not isinstance(raw_answers, dict):
             raise ValueError("TypeSafe API response has no answers map")
-        retention = self._parse_choice(answers.get("retention"), payload["questions"]["retention"]["criteria"])
-        route = self._parse_choice(answers.get("route"), payload["questions"]["route"]["criteria"])
+        answers = {name: self._parse_choice(raw_answers.get(name), definition["criteria"])
+                   for name, definition in questions.items()}
         model = data.get("model")
         if not isinstance(model, str) or not model:
             raise ValueError("TypeSafe API response has no model")
-        return CandidateDecision(retention=retention, route=route, model=model)
+        return JevResult(answers=answers, model=model)
+
+    def pass_a(self, candidate: dict) -> JevResult:
+        return self._ask("pass-a", {"candidate": candidate})
+
+    def pass_b(self, candidate: dict, canonical_matches: list[dict], wiki_candidates: list[dict]) -> JevResult:
+        return self._ask("pass-b", {
+            "candidate": candidate,
+            "canonical_matches": canonical_matches,
+            "wiki_candidates": wiki_candidates,
+            "cloud_safe": candidate.get("cloud_safe") is True,
+        })
+
+    def end_intent(self, message: str) -> JevResult:
+        return self._ask("end-intent", {"latest_user_message": message})
 
     @staticmethod
     def _parse_choice(answer: object, criteria: dict) -> ChoiceResult:

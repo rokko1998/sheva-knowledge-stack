@@ -5,6 +5,36 @@
     "profile": "default",
     "persona": "policies/notebooklm/ai-brain.md",
     "managed_source_title": "[sheva-knowledge-stack] Curated context",
-    "drive_path": "gdrive:sheva-knowledge-stack/AI Brain/Curated context.txt"
+    "drive_path": "gdrive:sheva-knowledge-stack/AI Brain/Curated context.txt",
+    "buckets": {
+      "CURRENT_CONTEXT": {
+        "title": "[sheva-knowledge-stack] CURRENT_CONTEXT",
+        "drive_path": "gdrive:sheva-knowledge-stack/AI Brain/CURRENT_CONTEXT.txt"
+      },
+      "PROJECTS": {
+        "title": "[sheva-knowledge-stack] PROJECTS",
+        "drive_path": "gdrive:sheva-knowledge-stack/AI Brain/PROJECTS.txt"
+      },
+      "DECISIONS": {
+        "title": "[sheva-knowledge-stack] DECISIONS",
+        "drive_path": "gdrive:sheva-knowledge-stack/AI Brain/DECISIONS.txt"
+      },
+      "EXPERIMENTS": {
+        "title": "[sheva-knowledge-stack] EXPERIMENTS",
+        "drive_path": "gdrive:sheva-knowledge-stack/AI Brain/EXPERIMENTS.txt"
+      },
+      "RESEARCH_INSIGHTS": {
+        "title": "[sheva-knowledge-stack] RESEARCH_INSIGHTS",
+        "drive_path": "gdrive:sheva-knowledge-stack/AI Brain/RESEARCH_INSIGHTS.txt"
+      },
+      "PEOPLE": {
+        "title": "[sheva-knowledge-stack] PEOPLE",
+        "drive_path": "gdrive:sheva-knowledge-stack/AI Brain/PEOPLE.txt"
+      },
+      "LESSONS_LEARNED": {
+        "title": "[sheva-knowledge-stack] LESSONS_LEARNED",
+        "drive_path": "gdrive:sheva-knowledge-stack/AI Brain/LESSONS_LEARNED.txt"
+      }
+    }
   }
 }

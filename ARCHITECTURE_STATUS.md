@@ -1,27 +1,16 @@
-# Knowledge architecture: operating state
+# Knowledge architecture: observed state
 
-Verified 2026-09-22. Obsidian Brain is canonical; AI Brain is a curated projection.
+Checked 2026-09-22. Obsidian Brain remains canonical. The two owned repositories are `sheva-agent-stack` (activation/updater) and this repository (knowledge pipeline); pinned ObsidianDataWeave and NotebookLM are external dependencies.
 
-| Layer | Owner | State |
-| --- | --- | --- |
-| Agent activation, weekly source update discovery | `sheva-agent-stack` | Installed; activates this repository's skill and hooks |
-| Session lifecycle | This repository | `SessionEnd` and `PreCompact` capture pending sessions; `SessionStart` reminds about pending wrapup or publication; explicit endings invoke wrapup guidance |
-| Retention and routing | This repository + official TypeSafe Jev API | Live API verified; agent reviews every candidate; local model dormant |
-| Canonical write and recall | Pinned ObsidianDataWeave + Brain vault | Two real reviewed notes written through `vault_writer.py` and found in FTS5 |
-| AI Brain publication | This repository + rclone + NotebookLM CLI | Google-native Drive document and one NotebookLM source created; a second update kept both IDs; fulltext contains both entries; repeat publish returned `unchanged` |
-| AI Brain persona | This repository + NotebookLM CLI | AI Brain persona applied; `notebooks.json` supports separate prompts for future notebooks |
-| Reverse import | Pinned ObsidianDataWeave | Explicit `import-notes` command connected; live empty-note branch verified. Contentful import waits for an actual curated NotebookLM note |
-| DataWeave upgrades | This repository | Locked commit, clean upstream source, update detection, tested `promote <commit>` command; no newer commit was available for a live promotion |
+| Layer | Observed state |
+| --- | --- |
+| Git ownership/upstream | Both owned repositories have Git remotes. Pinned DataWeave worktree is active; its source checkout remains clean. |
+| Lifecycle | Hooks installed; synthetic tests cover end/continue decisions, completed revision suppression, and pending recovery. A real Codex stop/start cycle still needs observation. |
+| Jev | Official TypeSafe API responds. Live `SESSION_END` and `CONTINUE` examples matched the agreed examples. PASS A and PASS B ran on a safe fixture; uncertainty resulted in REVIEW without a write. |
+| Canonical write/recall | Live Jev PASS A → FTS5 → PASS B → `apply` wrote a durable decision through DataWeave; FTS5 finds it. A meaningful canonical update and isolated atomic/wiki writer tests passed, including wikilink guard. |
+| AI Brain projection | Seven sources were created and observed `ready` with matching notebook/source/Drive IDs. Legacy managed source was retired only afterward. Repeated publication returned seven `unchanged`; changing DECISIONS refreshed only that source. The indexed fulltext contained the new canonical sentence. |
+| NotebookLM persona | The approved persona was applied to the exact AI Brain UUID. Other notebooks were not configured. |
+| Reverse import | A contentful saved AI Brain note was imported through pinned DataWeave into a new atomic Obsidian note and found with FTS5; managed source fulltext was excluded. |
+| Upgrades | DataWeave pin/promote remains separate from source fetch. Promotion contract now checks wiki APIs too. CLI updated to notebooklm-py 0.8.2; this did not change the regional redirect. |
 
-The generic skill updater still fast-forwards clean external skill checkouts. This repository pins only ObsidianDataWeave, whose runtime is independent of its source checkout. Local code and policy are held in the two personal repositories; third-party source checkouts live separately.
-
-## Intentional review points
-
-- Jev scores are advisory until labeled real-session calibration. `UNCERTAIN`, duplicate candidates, wiki routing, and merges require agent review. The pipeline does not silently overwrite existing knowledge.
-- The reverse path imports saved NotebookLM **notes**, not indexed source fulltext. AI Brain currently has no saved notes, so a contentful reverse import has not been exercised.
-- AI Brain is not consulted automatically during ordinary questions until the user enables that behavior.
-- Google publication is retried from the outbox after network failures; session start reminds the agent of unpublished content. Closing a session never launches a long-running cloud operation.
-
-## Commands
-
-Run from this repository: `python3 -m knowledge_stack status`, `pending`, `classify INPUT OUTPUT`, `apply PLAN`, `publish`, `import-notes`, `check-updates`, and `promote COMMIT`. The wrapup skill documents semantic review. The agent repository's `scripts/activate-knowledge-stack` restores the installed links and pinned runtime.
+One later Jev-backed canonical write has not yet reached AI Brain: the network route again redirected NotebookLM to `location=unsupported` during preflight. `python3 -m knowledge_stack status` currently shows only `DECISIONS` publication pending. A later `publish` resumes without replacing stable IDs. The two old outbox snapshots are ignored by the canonical renderer and remain in private runtime storage for recovery. Routine AI Brain consultation remains inactive until the user enables it.

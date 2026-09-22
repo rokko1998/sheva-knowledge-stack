@@ -89,7 +89,7 @@ def promote_runtime(revision: str) -> dict:
         subprocess.run(["git", "worktree", "add", "--detach", str(candidate_dir), candidate], cwd=source, check=True)
     if _git("rev-parse", "HEAD", cwd=candidate_dir) != candidate or _git("status", "--porcelain", cwd=candidate_dir):
         raise RuntimeError("Candidate worktree is dirty or points to another commit")
-    for relative in ("AGENTS.md", "scripts/generate_notes.py", "scripts/vault_writer.py", "scripts/memory_index.py", "scripts/process_notebook.py"):
+    for relative in ("AGENTS.md", "scripts/generate_notes.py", "scripts/vault_writer.py", "scripts/memory_index.py", "scripts/process_notebook.py", "scripts/wiki_compile.py", "scripts/wiki_models.py"):
         if not (candidate_dir / relative).is_file():
             raise RuntimeError(f"Candidate lacks required DataWeave contract: {relative}")
     config_link = candidate_dir / "config.toml"
@@ -104,6 +104,11 @@ def promote_runtime(revision: str) -> dict:
     subprocess.run([sys.executable, "-m", "unittest", "discover", "-s", "tests", "-q"], cwd=ROOT, check=True)
     for script in ("generate_notes.py", "vault_writer.py", "memory_index.py", "process_notebook.py"):
         subprocess.run([str(dataweave_python()), f"scripts/{script}", "--help"], cwd=candidate_dir, check=True, capture_output=True)
+    subprocess.run([str(dataweave_python()), "-c",
+                    "from scripts.wiki_models import parse_changeset; "
+                    "from scripts.wiki_compile import (snapshot_wiki_space, validate_changeset, materialize_to_staging, "
+                    "_append_log_to_staging, regenerate_index_to_staging, write_to_vault)"],
+                   cwd=candidate_dir, check=True, capture_output=True)
     with tempfile.TemporaryDirectory(prefix="dataweave-contract-", dir=RUNTIME) as tmp:
         test_root = Path(tmp)
         sample = test_root / "atom-plan.json"
